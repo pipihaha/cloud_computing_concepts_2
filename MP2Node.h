@@ -18,6 +18,16 @@
 #include "Params.h"
 #include "Message.h"
 #include "Queue.h"
+#include "common.h"
+#include <unordered_map>
+
+typedef struct Quoram_Item {
+	//int transID;
+	ReplicaType type;
+	int success_count;
+	int fail_count;
+	long timestamp;
+}Quoram_Item;
 
 /**
  * CLASS NAME: MP2Node
@@ -38,7 +48,8 @@ private:
 	// Ring
 	vector<Node> ring;
 	// Hash Table
-	HashTable * ht;
+	//HashTable * ht;
+	unordered_map<string, pair<string, ReplicaType>> data_hashtable;
 	// Member representing this member
 	Member *memberNode;
 	// Params object
@@ -47,6 +58,9 @@ private:
 	EmulNet * emulNet;
 	// Object of Log
 	Log * log;
+
+	unordered_map<int, Quoram_Item> Quoram_Items;
+	
 
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
@@ -80,13 +94,21 @@ public:
 	vector<Node> findNodes(string key);
 
 	// server
-	bool createKeyValue(string key, string value, ReplicaType replica);
-	string readKey(string key);
-	bool updateKeyValue(string key, string value, ReplicaType replica);
-	bool deletekey(string key);
+    bool createKeyValue(string key, string value, ReplicaType replica, int transID);
+    string readKey(string key, int transID);
+    bool updateKeyValue(string key, string value, ReplicaType replica, int transID);
+    bool deletekey(string key, int transID);
 
 	// stabilization protocol - handle multiple failures
-	void stabilizationProtocol();
+	void stabilizationProtocol(vector<Node>& curMemList);
+
+	void insert_item_to_hashtable(ReplicaType type);
+    void send_reply(MessageType type, int transID, bool success, Address* toaddr);
+    void send_readreply(int transID, Address* toaddr, string str);
+	void share_load_to_node(Node& newnode, ReplicaType Reptype);
+	void delete_load_from_node(Node& newnode);
+    void handle_reply(Message *msg);
+    void handle_readreply(Message *msg);
 
 	~MP2Node();
 };

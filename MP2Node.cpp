@@ -1,4 +1,4 @@
-/**********************************
+﻿/**********************************
  * FILE NAME: MP2Node.cpp
  *
  * DESCRIPTION: MP2Node class definition
@@ -13,15 +13,17 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	this->par = par;
 	this->emulNet = emulNet;
 	this->log = log;
-	ht = new HashTable();
+	//ht = new HashTable();
 	this->memberNode->addr = *address;
+
+	//this->transID = 0;
 }
 
 /**
  * Destructor
  */
 MP2Node::~MP2Node() {
-	delete ht;
+	//delete ht;
 	delete memberNode;
 }
 
@@ -49,14 +51,22 @@ void MP2Node::updateRing() {
 	/*
 	 * Step 2: Construct the ring
 	 */
+
+	Node cur_node(memberNode->addr);
+
+	curMemList.push_back(cur_node);
+
 	// Sort the list based on the hashCode
 	sort(curMemList.begin(), curMemList.end());
-
+	ring = curMemList;
 
 	/*
 	 * Step 3: Run the stabilization protocol IF REQUIRED
 	 */
 	// Run stabilization protocol if the hash table size is greater than zero and if there has been a changed in the ring
+	stabilizationProtocol(ring);
+
+	return;
 }
 
 /**
@@ -98,6 +108,17 @@ size_t MP2Node::hashFunction(string key) {
 	return ret%RING_SIZE;
 }
 
+void MP2Node::insert_item_to_hashtable(ReplicaType type) {
+	Quoram_Item item;
+	item.type = type;
+	item.success_count = 0;
+	item.fail_count = 0;
+	item.timestamp = memberNode->heartbeat;
+	Quoram_Items[g_transID] = item;
+
+	return;
+}
+
 /**
  * FUNCTION NAME: clientCreate
  *
@@ -111,6 +132,26 @@ void MP2Node::clientCreate(string key, string value) {
 	/*
 	 * Implement this
 	 */
+	vector<Node> nodes = findNodes(key);
+	g_transID += 1;
+
+    insert_item_to_hashtable(PRIMARY);
+
+	Message msg(g_transID, memberNode->addr, CREATE, key, value, PRIMARY);
+	string msg_str = msg.toString();
+
+	for (auto target_node : nodes) {
+		emulNet->ENsend(&memberNode->addr, &target_node.nodeAddress, (char *)&msg_str, msg_str.size());
+        if (msg.replica == PRIMARY) {
+            msg.replica = SECONDARY;
+        }
+        else if (msg.replica == SECONDARY) {
+            msg.replica = TERTIARY;
+        }
+		msg_str = msg.toString();
+    }
+
+	return;
 }
 
 /**
@@ -126,6 +167,19 @@ void MP2Node::clientRead(string key){
 	/*
 	 * Implement this
 	 */
+	vector<Node> nodes = findNodes(key);
+	g_transID += 1;
+
+    insert_item_to_hashtable(PRIMARY);
+
+	Message msg(g_transID, memberNode->addr, READ, key);
+	string msg_str = msg.toString();
+
+	for (auto target_node : nodes) {
+		emulNet->ENsend(&memberNode->addr, &target_node.nodeAddress, (char *)&msg_str, msg_str.size());
+	}
+
+	return;
 }
 
 /**
@@ -141,6 +195,26 @@ void MP2Node::clientUpdate(string key, string value){
 	/*
 	 * Implement this
 	 */
+	vector<Node> nodes = findNodes(key);
+	g_transID += 1;
+
+    insert_item_to_hashtable(PRIMARY);
+
+	Message msg(g_transID, memberNode->addr, UPDATE, key, value, PRIMARY);
+	string msg_str = msg.toString();
+
+	for (auto target_node : nodes) {
+		emulNet->ENsend(&memberNode->addr, &target_node.nodeAddress, (char *)&msg_str, msg_str.size());
+        if (msg.replica == PRIMARY) {
+            msg.replica = SECONDARY;
+        }
+        else if (msg.replica == SECONDARY) {
+            msg.replica = TERTIARY;
+        }
+		msg_str = msg.toString();
+	}
+
+	return;
 }
 
 /**
@@ -156,6 +230,26 @@ void MP2Node::clientDelete(string key){
 	/*
 	 * Implement this
 	 */
+	vector<Node> nodes = findNodes(key);
+	g_transID += 1;
+
+    insert_item_to_hashtable(PRIMARY);
+
+	Message msg(g_transID, memberNode->addr, DELETE, key);
+	string msg_str = msg.toString();
+
+	for (auto target_node : nodes) {
+		emulNet->ENsend(&memberNode->addr, &target_node.nodeAddress, (char *)&msg_str, msg_str.size());
+        if (msg.replica == PRIMARY) {
+            msg.replica = SECONDARY;
+        }
+        else if (msg.replica == SECONDARY) {
+            msg.replica = TERTIARY;
+        }
+		msg_str = msg.toString();
+	}
+
+	return;
 }
 
 /**
@@ -166,11 +260,17 @@ void MP2Node::clientDelete(string key){
  * 			   	1) Inserts key value into the local hash table
  * 			   	2) Return true or false based on success or failure
  */
-bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
+bool MP2Node::createKeyValue(string key, string value, ReplicaType replica, int transID) {
 	/*
 	 * Implement this
 	 */
 	// Insert key, value, replicaType into the hash table
+	vector<Node> nodes = findNodes(key);
+	
+	data_hashtable[key] = make_pair(value, replica);
+	
+    log->logCreateSuccess(&memberNode->addr, false, transID, key, value);
+	return true;
 }
 
 /**
@@ -181,11 +281,21 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
  * 			    1) Read key from local hash table
  * 			    2) Return value
  */
-string MP2Node::readKey(string key) {
+string MP2Node::readKey(string key, int transID) {
 	/*
 	 * Implement this
 	 */
 	// Read key from local hash table and return value
+	string str = (data_hashtable.count(key) == 0) ? "" : data_hashtable[key].first;
+
+	if (!str.compare("")) {
+        log->logReadFail(&memberNode->addr, false, transID, key);
+	}
+	else {
+        log->logReadSuccess(&memberNode->addr, false, transID, key, str);
+	}
+
+	return str;
 }
 
 /**
@@ -196,11 +306,29 @@ string MP2Node::readKey(string key) {
  * 				1) Update the key to the new value in the local hash table
  * 				2) Return true or false based on success or failure
  */
-bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
+bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica, int transID) {
 	/*
 	 * Implement this
 	 */
 	// Update key in local hash table and return true or false
+	bool res;
+
+	if (data_hashtable.count(key) == 0) {
+		res = false;
+	}
+	else {
+		res = true;
+		data_hashtable[key] = make_pair(value, replica);
+	}
+
+	if (!res) {
+		log->logUpdateFail(&memberNode->addr, false, transID, key, value);
+	}
+	else {
+		log->logUpdateSuccess(&memberNode->addr, false, transID, key, value);
+	}
+
+	return res;
 }
 
 /**
@@ -211,11 +339,124 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
  * 				1) Delete the key from the local hash table
  * 				2) Return true or false based on success or failure
  */
-bool MP2Node::deletekey(string key) {
+bool MP2Node::deletekey(string key, int transID) {
 	/*
 	 * Implement this
 	 */
 	// Delete the key from the local hash table
+	bool res;
+
+	if (data_hashtable.count(key) == 0) {
+		res = false;
+	}
+	else {
+		res = true;
+		data_hashtable.erase(key);
+	}
+
+	if (!res) {
+		log->logDeleteFail(&memberNode->addr, false, transID, key);
+	}
+	else {
+		log->logDeleteSuccess(&memberNode->addr, false, transID, key);
+	}
+
+	return res;
+}
+
+void MP2Node::send_reply(MessageType type, int transID, bool success, Address* toaddr) {
+	Message msg(transID, memberNode->addr, type, success);
+	string msg_str = msg.toString();
+
+	emulNet->ENsend(&memberNode->addr, toaddr, (char *)&msg_str, msg_str.size());
+
+	return;
+}
+
+void MP2Node::send_readreply(int transID, Address* toaddr, string str) {
+	Message msg(transID, memberNode->addr, str);
+	string msg_str = msg.toString();
+	
+	emulNet->ENsend(&memberNode->addr, toaddr, (char *)&msg_str, msg_str.size());
+
+	return;
+}
+
+void MP2Node::handle_reply(Message *msg) {
+	int transID = msg->transID;
+
+	if (Quoram_Items.count(transID) == 0) {
+		return;
+	} 
+
+	if (msg->success) {
+		Quoram_Items[transID].success_count += 1;
+	}
+	else {
+		Quoram_Items[transID].fail_count += 1;
+	}
+
+	switch (msg->type) {
+	    case CREATE:
+			if (Quoram_Items[transID].success_count > 1) {
+				log->logCreateSuccess(&memberNode->addr, true, transID, msg->key, msg->value);
+			}
+			else if (Quoram_Items[transID].fail_count > 1) {
+				log->logCreateFail(&memberNode->addr, true, transID, msg->key, msg->value);
+			}
+            break;
+		case UPDATE:
+			if (Quoram_Items[transID].success_count > 1) {
+				log->logUpdateSuccess(&memberNode->addr, true, transID, msg->key, msg->value);
+			}
+			else if (Quoram_Items[transID].fail_count > 1) {
+				log->logUpdateFail(&memberNode->addr, true, transID, msg->key, msg->value);
+			}
+            break;
+		case DELETE:
+			if (Quoram_Items[transID].success_count > 1) {
+				log->logDeleteSuccess(&memberNode->addr, true, transID, msg->key);
+			}
+			else if (Quoram_Items[transID].fail_count > 1) {
+				log->logDeleteFail(&memberNode->addr, true, transID, msg->key);
+			}
+            break;
+		default:
+            break;
+			//ASSERT(0);
+	}
+
+	if (Quoram_Items[transID].success_count > 1 || Quoram_Items[transID].fail_count > 1) {
+		Quoram_Items.erase(transID);
+	}
+
+	return;
+}
+
+void MP2Node::handle_readreply(Message *msg) {
+	int transID = msg->transID;
+
+	if (Quoram_Items.count(transID) == 0) {
+		return;
+	}
+
+	if (msg->value.compare("")) {
+		Quoram_Items[transID].success_count += 1;
+	}
+	else {
+		Quoram_Items[transID].fail_count += 1;
+	}
+	
+	if (Quoram_Items[transID].success_count > 1) {
+		log->logReadSuccess(&memberNode->addr, true, transID, msg->key, msg->value);
+		Quoram_Items.erase(transID);
+	}
+	else if (Quoram_Items[transID].fail_count > 1){
+		log->logReadFail(&memberNode->addr, true, transID, msg->key);
+		Quoram_Items.erase(transID);
+	}
+
+	return;
 }
 
 /**
@@ -237,6 +478,9 @@ void MP2Node::checkMessages() {
 	 * Declare your local variables here
 	 */
 
+	bool success;
+	string read_str;
+
 	// dequeue all messages and handle them
 	while ( !memberNode->mp2q.empty() ) {
 		/*
@@ -246,18 +490,46 @@ void MP2Node::checkMessages() {
 		size = memberNode->mp2q.front().size;
 		memberNode->mp2q.pop();
 
-		string message(data, data + size);
+		string str(data, data + size);
+		Message msg(str);
 
-		/*
-		 * Handle the message types here
-		 */
-
+		//CREATE, READ, UPDATE, DELETE, REPLY, READREPLY
+		switch (msg.type) {
+		    case CREATE:
+                success = createKeyValue(msg.key, msg.value, msg.replica, msg.transID);
+				send_reply(msg.type, msg.transID, success, &msg.fromAddr);
+				break;
+			case READ:
+                read_str = readKey(msg.key, msg.transID);
+                send_readreply(msg.transID, &msg.fromAddr, read_str);
+				break;
+			case UPDATE:
+                success = updateKeyValue(msg.key, msg.value, msg.replica, msg.transID);
+                send_reply(msg.type, msg.transID, success, &msg.fromAddr);
+                
+				break;
+			case DELETE:
+                success = deletekey(msg.key, msg.transID);
+                send_reply(msg.type, msg.transID, success, &msg.fromAddr);
+				break;
+			case REPLY:
+				handle_reply(&msg);
+				break;
+			case READREPLY:
+				handle_readreply(&msg);
+				break;
+			default: 
+                break;
+				//ASSERT(0);
+		}
 	}
 
 	/*
 	 * This function should also ensure all READ and UPDATE operation
 	 * get QUORUM replies
 	 */
+
+
 }
 
 /**
@@ -315,6 +587,55 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
 	Queue q;
 	return q.enqueue((queue<q_elt> *)env, (void *)buff, size);
 }
+
+
+void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
+	int transID = 0;
+	string key, value, msg_str;
+	ReplicaType type;
+
+	Message msg(transID, memberNode->addr, CREATE, key, value, Reptype);
+
+	for (auto entry : data_hashtable) {
+		key = entry.first;
+		value = entry.second.first;
+		type = entry.second.second;
+
+		if (type == PRIMARY) {
+			msg.key = key;
+			msg.value = value;
+
+			msg_str = msg.toString();
+			emulNet->ENsend(&memberNode->addr, &newnode.nodeAddress, (char *)&msg_str, msg_str.size());
+		}
+
+	}
+
+	return;
+}
+
+void MP2Node::delete_load_from_node(Node& oldnode) {
+	int transID = 0;
+	string key, msg_str;
+	ReplicaType type;
+
+	Message msg(transID, memberNode->addr, DELETE, key);
+
+	for (auto entry : data_hashtable) {
+		key = entry.first;
+		type = entry.second.second;
+
+		if (type == PRIMARY) {
+			msg.key = key;
+			msg_str = msg.toString();
+			emulNet->ENsend(&memberNode->addr, &oldnode.nodeAddress, (char *)&msg_str, msg_str.size());
+		}
+
+	}
+
+	return;
+}
+
 /**
  * FUNCTION NAME: stabilizationProtocol
  *
@@ -324,8 +645,52 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
  *				1) Ensures that there are three "CORRECT" replicas of all the keys in spite of failures and joins
  *				Note:- "CORRECT" replicas implies that every key is replicated in its two neighboring nodes in the ring
  */
-void MP2Node::stabilizationProtocol() {
+void MP2Node::stabilizationProtocol(vector<Node>& curMemList) {
 	/*
 	 * Implement this
 	 */
+
+	// find index for current node
+	int index;
+	for (int index = 0; index < ring.size(); index++) {
+		if (ring[index].nodeAddress == memberNode->addr) {
+			break;
+		}
+	}
+
+	vector<Node> new_hasMyReplicas;
+
+    index = (index + 1) % ring.size();
+    new_hasMyReplicas.push_back(ring[index]);
+
+    index = (index + 1) % ring.size();
+    new_hasMyReplicas.push_back(ring[index]);
+
+	if (hasMyReplicas.size() == 0) {
+		hasMyReplicas = new_hasMyReplicas;
+		share_load_to_node(hasMyReplicas[0], SECONDARY);
+		share_load_to_node(hasMyReplicas[1], TERTIARY);
+
+		return;
+	}
+
+	//create replicas on new nodes
+	for (index = 0; index < 2; index++) {
+        if (new_hasMyReplicas[index].nodeHashCode != hasMyReplicas[0].nodeHashCode && new_hasMyReplicas[index].nodeHashCode != hasMyReplicas[1].nodeHashCode) { // new node added in, share some load on it.
+			ReplicaType type = (index == 0) ? SECONDARY : TERTIARY;
+			share_load_to_node(new_hasMyReplicas[index], type);
+		}
+	}
+	
+	//delete key/value from some nodes
+	for (index = 0; index < 2; index++) {
+        if (hasMyReplicas[index].nodeHashCode != new_hasMyReplicas[0].nodeHashCode && hasMyReplicas[index].nodeHashCode != new_hasMyReplicas[1].nodeHashCode) { // new node added in, share some load on it.
+			delete_load_from_node(hasMyReplicas[index]);
+		}
+	}
+
+
+	hasMyReplicas = new_hasMyReplicas;
+
+	return;
 }
