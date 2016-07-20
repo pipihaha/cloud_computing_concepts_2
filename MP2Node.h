@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 typedef struct Quoram_Item {
-	//int transID;
+	int transID;
     MessageType type;
 	int success_count;
 	int fail_count;

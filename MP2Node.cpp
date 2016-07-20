@@ -19,9 +19,9 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	//ht = new HashTable();
 	this->memberNode->addr = *address;
 
-    Address cur_addr = *address;
-    cur_addr.addr[5] = '1';
-    this->cur_node = new Node(cur_addr);
+    //Address cur_addr = *address;
+    //cur_addr.addr[5] = '1';
+    this->cur_node = new Node(*address);
 
 #ifdef DEBUGLOG_MP2
     log->LOG(&memberNode->addr, "Leaving MP2Node");
@@ -98,7 +98,7 @@ vector<Node> MP2Node::getMembershipList() {
 	for ( i = 0 ; i < this->memberNode->memberList.size(); i++ ) {
 		Address addressOfThisMember;
 		int id = this->memberNode->memberList.at(i).getid();
-        short port = 1;//this->memberNode->memberList.at(i).getport();
+        short port = this->memberNode->memberList.at(i).getport();
 		memcpy(&addressOfThisMember.addr[0], &id, sizeof(int));
 		memcpy(&addressOfThisMember.addr[4], &port, sizeof(short));
 		curMemList.emplace_back(Node(addressOfThisMember));
@@ -124,6 +124,7 @@ size_t MP2Node::hashFunction(string key) {
 void MP2Node::insert_item_to_hashtable(MessageType type, string key, string value) {
 	Quoram_Item item;
 	item.type = type;
+    item.transID = g_transID;
 	item.success_count = 0;
 	item.fail_count = 0;
 	item.timestamp = memberNode->heartbeat;
@@ -147,6 +148,9 @@ void MP2Node::clientCreate(string key, string value) {
 	/*
 	 * Implement this
 	 */
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
 	vector<Node> nodes = findNodes(key);
 	g_transID += 1;
 
@@ -156,8 +160,9 @@ void MP2Node::clientCreate(string key, string value) {
 	string msg_str = msg.toString();
 
 	for (auto target_node : nodes) {
-
-        emulNet->ENsend(&cur_node->nodeAddress, &target_node.nodeAddress, msg_str);
+        Address target_address = target_node.nodeAddress;
+        target_address.addr[5] = '1';
+        emulNet->ENsend(&mp2_address, &target_address, msg_str);
         if (msg.replica == PRIMARY) {
             msg.replica = SECONDARY;
         }
@@ -183,6 +188,9 @@ void MP2Node::clientRead(string key){
 	/*
 	 * Implement this
 	 */
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
 	vector<Node> nodes = findNodes(key);
 	g_transID += 1;
 
@@ -192,7 +200,9 @@ void MP2Node::clientRead(string key){
 	string msg_str = msg.toString();
 
 	for (auto target_node : nodes) {
-        emulNet->ENsend(&cur_node->nodeAddress, &target_node.nodeAddress, msg_str);
+        Address target_address = target_node.nodeAddress;
+        target_address.addr[5] = '1';
+        emulNet->ENsend(&mp2_address, &target_address, msg_str);
 	}
 
 	return;
@@ -211,6 +221,9 @@ void MP2Node::clientUpdate(string key, string value){
 	/*
 	 * Implement this
 	 */
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
 	vector<Node> nodes = findNodes(key);
 	g_transID += 1;
 
@@ -220,7 +233,9 @@ void MP2Node::clientUpdate(string key, string value){
 	string msg_str = msg.toString();
 
 	for (auto target_node : nodes) {
-        emulNet->ENsend(&cur_node->nodeAddress, &target_node.nodeAddress, msg_str);
+        Address target_address = target_node.nodeAddress;
+        target_address.addr[5] = '1';
+        emulNet->ENsend(&mp2_address, &target_address, msg_str);
         if (msg.replica == PRIMARY) {
             msg.replica = SECONDARY;
         }
@@ -246,6 +261,8 @@ void MP2Node::clientDelete(string key){
 	/*
 	 * Implement this
 	 */
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
 	vector<Node> nodes = findNodes(key);
 	g_transID += 1;
 
@@ -255,7 +272,9 @@ void MP2Node::clientDelete(string key){
 	string msg_str = msg.toString();
 
 	for (auto target_node : nodes) {
-        emulNet->ENsend(&cur_node->nodeAddress, &target_node.nodeAddress, msg_str);
+        Address target_address = target_node.nodeAddress;
+        target_address.addr[5] = '1';
+        emulNet->ENsend(&mp2_address, &target_address, msg_str);
         if (msg.replica == PRIMARY) {
             msg.replica = SECONDARY;
         }
@@ -281,7 +300,7 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica, int 
 	 * Implement this
 	 */
 	// Insert key, value, replicaType into the hash table
-	vector<Node> nodes = findNodes(key);
+	//vector<Node> nodes = findNodes(key);
 	
 	data_hashtable[key] = make_pair(value, replica);
 	
@@ -389,7 +408,10 @@ void MP2Node::send_reply(int transID, bool success, Address* toaddr, string key,
     msg.value = value;
 	string msg_str = msg.toString();
 
-    emulNet->ENsend(&cur_node->nodeAddress, toaddr, msg_str);
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
+    emulNet->ENsend(&mp2_address, toaddr, msg_str);
 
 	return;
 }
@@ -400,7 +422,10 @@ void MP2Node::send_readreply(int transID, Address* toaddr, string key, string st
     msg.key = key;
 	string msg_str = msg.toString();
 	
-    emulNet->ENsend(&cur_node->nodeAddress, toaddr, msg_str);
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
+    emulNet->ENsend(&mp2_address, toaddr, msg_str);
 
 	return;
 }
@@ -729,6 +754,34 @@ void MP2Node::stabilizationProtocol() {
 			delete_load_from_node(hasMyReplicas[index]);
 		}
 	}
+
+    auto iter = Quoram_Items.begin();
+    while (iter != Quoram_Items.end()) {
+        Quoram_Item item = (*iter).second;
+        if (memberNode->heartbeat - item.timestamp > 5) {
+            switch (item.type) {
+            case READ:
+                log->logReadFail(&memberNode->addr, true, item.transID, item.key);
+                break;
+            case CREATE:
+                log->logCreateFail(&memberNode->addr, true, item.transID, item.key, item.value);
+                break;
+            case UPDATE:
+                log->logUpdateFail(&memberNode->addr, true, item.transID, item.key, item.value);
+                break;
+            case DELETE:
+                log->logDeleteFail(&memberNode->addr, true, item.transID, item.key);
+                break;
+            default:
+                break;
+            }
+
+            iter = Quoram_Items.erase(iter);
+        }
+        else {
+            iter++;
+        }
+    }
 
 
 	hasMyReplicas = new_hasMyReplicas;
