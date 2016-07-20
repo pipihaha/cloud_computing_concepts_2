@@ -23,10 +23,12 @@
 
 typedef struct Quoram_Item {
 	//int transID;
-	ReplicaType type;
+    MessageType type;
 	int success_count;
 	int fail_count;
 	long timestamp;
+    string key;
+    string value;
 }Quoram_Item;
 
 /**
@@ -59,6 +61,7 @@ private:
 	// Object of Log
 	Log * log;
 
+    Node *cur_node;
 	unordered_map<int, Quoram_Item> Quoram_Items;
 	
 
@@ -100,11 +103,11 @@ public:
     bool deletekey(string key, int transID);
 
 	// stabilization protocol - handle multiple failures
-	void stabilizationProtocol(vector<Node>& curMemList);
+	void stabilizationProtocol();
 
-	void insert_item_to_hashtable(ReplicaType type);
-    void send_reply(MessageType type, int transID, bool success, Address* toaddr);
-    void send_readreply(int transID, Address* toaddr, string str);
+    void insert_item_to_hashtable(MessageType type, string key, string value);
+    void send_reply(int transID, bool success, Address* toaddr, string key, string value);
+    void send_readreply(int transID, Address* toaddr, string key, string str);
 	void share_load_to_node(Node& newnode, ReplicaType Reptype);
 	void delete_load_from_node(Node& newnode);
     void handle_reply(Message *msg);

@@ -577,6 +577,10 @@ void MP1Node::handle_message_MEMBERFAILURE(void *env, char *data, int size ) {
  */
 void MP1Node::nodeLoopOps() {
 
+    if (memberNode->bFailed) {
+        return;
+    }
+
 	/*
 	 * Your code goes here
 	 */
