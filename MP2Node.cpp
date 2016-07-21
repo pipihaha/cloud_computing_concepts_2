@@ -649,11 +649,20 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
 
 
 void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
+#ifdef DEBUGLOG
+    log->LOG(&memberNode->addr, "share_load_to_node.");
+#endif
 
 	int transID = 0;
 	string key, value, msg_str;
 	ReplicaType type;
 
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
+    Address target_address = newnode.nodeAddress;
+    target_address.addr[5] = '1';
+    
 	Message msg(transID, memberNode->addr, CREATE, key, value, Reptype);
 
 	for (auto entry : data_hashtable) {
@@ -666,7 +675,7 @@ void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
 			msg.value = value;
 
 			msg_str = msg.toString();
-			emulNet->ENsend(&memberNode->addr, &newnode.nodeAddress, (char *)&msg_str, msg_str.size());
+            emulNet->ENsend(&mp2_address, &target_address, msg_str);
 		}
 
 	}
@@ -675,9 +684,18 @@ void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
 }
 
 void MP2Node::delete_load_from_node(Node& oldnode) {
+#ifdef DEBUGLOG
+    log->LOG(&memberNode->addr, "delete_load_from_node.");
+#endif
 	int transID = 0;
 	string key, msg_str;
 	ReplicaType type;
+
+    Address mp2_address = cur_node->nodeAddress;
+    mp2_address.addr[5] = '1';
+
+    Address target_address = oldnode.nodeAddress;
+    target_address.addr[5] = '1';
 
 	Message msg(transID, memberNode->addr, DELETE, key);
 
@@ -688,7 +706,7 @@ void MP2Node::delete_load_from_node(Node& oldnode) {
 		if (type == PRIMARY) {
 			msg.key = key;
 			msg_str = msg.toString();
-			emulNet->ENsend(&memberNode->addr, &oldnode.nodeAddress, (char *)&msg_str, msg_str.size());
+            emulNet->ENsend(&mp2_address, &target_address, msg_str);
 		}
 
 	}
@@ -755,6 +773,8 @@ void MP2Node::stabilizationProtocol() {
 		}
 	}
 
+    hasMyReplicas = new_hasMyReplicas;
+
     auto iter = Quoram_Items.begin();
     while (iter != Quoram_Items.end()) {
         Quoram_Item item = (*iter).second;
@@ -782,9 +802,6 @@ void MP2Node::stabilizationProtocol() {
             iter++;
         }
     }
-
-
-	hasMyReplicas = new_hasMyReplicas;
 
 	return;
 }

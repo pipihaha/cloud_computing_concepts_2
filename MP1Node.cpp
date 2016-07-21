@@ -226,7 +226,7 @@ void MP1Node::checkMessages() {
  *
  * DESCRIPTION: delete a member from memberList
  */
-void MP1Node::delete_node_from_memberlist(int id, short port) {
+void MP1Node::delete_node_from_memberlist(int id, short port, bool failed) {
 	for (int index = 0; index < (int)memberNode->memberList.size(); index ++) {
 		MemberListEntry* entry = &memberNode->memberList[index];
 		
@@ -239,8 +239,31 @@ void MP1Node::delete_node_from_memberlist(int id, short port) {
 			memberlist_set.erase(to_string(id) + ":" + to_string(port));
 			removednode_timestamp[to_string(id) + ":" + to_string(port)] = memberNode->heartbeat;
 			memberNode->nnb -= 1;
+
+            failed_member_set.insert(to_string(id) + ":" + to_string(port));
 		}
 	}
+
+    for (int index = 0; index < (int)suspected_list.size(); index++) {
+        if (suspected_list[index].id == id && suspected_list[index].port == port) {
+            suspected_list.erase(suspected_list.begin() + index);
+            break;
+        }
+    }
+    
+    if (failed == true) {
+        MessageMemberFailure msg;
+        msg.messageheader.msgType = MEMBERFAILURE;
+        msg.nodeaddr = GetAddress(id, port);
+        for (int index = 0; index < (int)memberNode->memberList.size(); index++) {
+            MemberListEntry *entry = &memberNode->memberList[index];
+            Address toaddr = GetAddress(entry->id, entry->port);
+#ifdef SELFDEBUG_1
+            log->LOG(&memberNode->addr, "Sending member failure message to memberlist.");
+#endif
+            emulNet->ENsend(&memberNode->addr, &toaddr, (char*) &msg, sizeof(msg));
+        }
+    }
 	
 	return;
 }
@@ -267,10 +290,10 @@ void MP1Node::add_node_to_memberlist(int id, short port, long heartbeat, long ti
 		return;
 	}
 	
-	// if the node is a previously removed one, wait for at least FAILURE_NODE_REJOIN_INTERBAL time to rejoin
-	if (removednode_timestamp.count(str) > 0 && removednode_timestamp[str] + FAILURE_NODE_REJOIN_INTERBAL >= memberNode->heartbeat) {
-		return;
-	}
+	// if the node is a previously removed one, need a JOINREQ to rejoin
+    if (failed_member_set.count(to_string(id) + ":" + to_string(port)) > 0) {
+        return;
+    }
 	
 	// log it
 	Address added_addr(str);
@@ -344,14 +367,19 @@ void MP1Node::handle_message_JOINREQ(void *env, char *data, int size ) {
 	int id = stoi(addr.substr(0, pos));
 	short port = (short)stoi(addr.substr(pos + 1, addr.size()-pos-1));
 	
-	#ifdef SELFDEBUG
-        log->LOG(&memberNode->addr, "received join request ...");
-    #endif
+	//#ifdef SELFDEBUG
+    //   log->LOG(&memberNode->addr, "received join request ...");
+    //#endif
 		
 	// if the node is alreay in the memberList, do nothing
 	if (memberlist_set.count(to_string(id) + ":" + to_string(port)) != 0) {
 		return;
 	}
+
+    // if the node is in the failed member list, remove it from that list
+    if (failed_member_set.count(to_string(id) + ":" + to_string(port)) != 0) {
+        failed_member_set.erase(to_string(id) + ":" + to_string(port));
+    }
 	
 	//new node to register
 	//step 1: advertise it to other nodes in memberlist
@@ -359,11 +387,11 @@ void MP1Node::handle_message_JOINREQ(void *env, char *data, int size ) {
 		MemberListEntry *entry = &memberNode->memberList[index];
 		Address toaddr = GetAddress(entry->id, entry->port);
 		
-		#ifdef SELFDEBUG
-		printAddress(&toaddr);
+		//#ifdef SELFDEBUG
+		//printAddress(&toaddr);
 		
-        log->LOG(&memberNode->addr, "forward join request to memberList ...");
-        #endif
+        //log->LOG(&memberNode->addr, "forward join request to memberList ...");
+        //#endif
 		
         emulNet->ENsend(&memberNode->addr, &toaddr, data, size);
 	}
@@ -417,9 +445,9 @@ void MP1Node::handle_message_JOINREP(void *env, char *data, int size ) {
 	short port = (short)stoi(addr.substr(pos + 1, addr.size()-pos-1));
 	
 	
-	#ifdef SELFDEBUG
-        log->LOG(&memberNode->addr, "received JOINREP response ...");
-     #endif
+	//#ifdef SELFDEBUG
+    //    log->LOG(&memberNode->addr, "received JOINREP response ...");
+    // #endif
 	 
 	// add introducer to memberList
 	 add_node_to_memberlist(id, port, welcome_resp->heartbeat, memberNode->heartbeat);
@@ -461,7 +489,7 @@ void MP1Node::handle_message_LEAVENOTICE(void *env, char *data, int size ) {
 	short port = (short)stoi(addr.substr(pos + 1, addr.size()-pos-1));
 	
 	//step 1: delete the node from the memberlisth
-	delete_node_from_memberlist(id, port);
+	delete_node_from_memberlist(id, port, false);
 	
 	//step 2: check the leaving node's memberlist, add any missing member to the memberlist
 	for (int index = 0; index < NUM_MEMBERLIST_ENTRIES_COPY; index ++) {
@@ -555,16 +583,37 @@ void MP1Node::handle_message_HEARTBEAT(void *env, char *data, int size ) {
 void MP1Node::handle_message_MEMBERFAILURE(void *env, char *data, int size ) {
 
 	/*
-	 * Your code goes here (seems nothing has to been done)
+	 * Your code goes here 
 	 */
-	 /*
-    MessageMemberFailure * mfail = (MessageMemberFailure *) data;
-	Address addr = mfail->nodeaddr;
-	size_t pos = addr.find(":");
-	int id = stoi(addr.substr(0, pos));
-	short port = (short)stoi(addr.substr(pos + 1, addr.size()-pos-1));
-	
-	*/
+#ifdef SELFDEBUG_1
+       log->LOG(&memberNode->addr, "received MEMBERFAILURE message ...");
+#endif
+
+    MessageMemberFailure *msg = (MessageMemberFailure *)data;
+    string addr = msg->nodeaddr.getAddress();
+    size_t pos = addr.find(":");
+    int id = stoi(addr.substr(0, pos));
+    short port = (short)stoi(addr.substr(pos + 1, addr.size() - pos - 1));
+
+    // already in the failure list, return
+    if (failed_member_set.count(to_string(id) + ":" + to_string(port)) > 0) {
+        return;
+    }
+
+    delete_node_from_memberlist(id, port, true);
+
+    for (int index = 0; index < (int)memberNode->memberList.size(); index++) {
+            MemberListEntry *entry = &memberNode->memberList[index];
+            Address toaddr = GetAddress(entry->id, entry->port);
+
+//#ifdef SELFDEBUG
+//            printAddress(&toaddr);
+ //           log->LOG(&memberNode->addr, "forward member failure message to memberList ...");
+//#endif
+
+            emulNet->ENsend(&memberNode->addr, &toaddr, data, size);
+        }
+
     return;
 }
 
@@ -590,7 +639,13 @@ void MP1Node::nodeLoopOps() {
 	vector<int> remove_list;
 	for (int index = 0; index < (int)suspected_list.size(); index ++) {
 		if (suspected_list[index].timestamp + FAILURE_PERIOD < memberNode->heartbeat) {
-			delete_node_from_memberlist(suspected_list[index].id, suspected_list[index].port);
+#ifdef SELFDEBUG_1
+            string str = "Delete Node --- ";
+            Address delete_address = GetAddress(suspected_list[index].id, suspected_list[index].port);
+            str = str + delete_address.getAddress();
+            log->LOG(&memberNode->addr, str.c_str());
+#endif
+			delete_node_from_memberlist(suspected_list[index].id, suspected_list[index].port, true);
 			suspected_set.erase(to_string(suspected_list[index].id) + ":" + to_string(suspected_list[index].port));
 			remove_list.push_back(index);
 		}
@@ -618,13 +673,8 @@ void MP1Node::nodeLoopOps() {
 	msg->heartbeat = memberNode->heartbeat;
 	
 	for (int index = 0; index < (int)memberNode->memberList.size(); index ++) {
-		srand(time(NULL));
-		int start = rand() % memberNode->memberList.size();
-		
-		start = (start == index)? ((start + 1) % memberNode->memberList.size()): start;
 		for (int i = 0; i < num_memberlist_items; i ++) {
-			msg->memberList[i] = memberNode->memberList[start];
-			start = (start + 1) % memberNode->memberList.size();
+			msg->memberList[i] = memberNode->memberList[i];
 		}
 		
 		for (int i = num_memberlist_items; i < NUM_MEMBERLIST_ENTRIES_COPY; i ++) { // clear these entries,

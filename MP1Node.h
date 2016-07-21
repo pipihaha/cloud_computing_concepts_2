@@ -19,15 +19,15 @@
 /**
  * Macros
  */
- #define SELFDEBUG 1
- 
+//#define SELFDEBUG 1
+#define SELFDEBUG_1 1
  
 #define TREMOVE 20
 #define TFAIL 5
 #define NUM_MEMBERLIST_ENTRIES_COPY 20
-#define HB_INTERVAL_PING 5
-#define SUSPECTED_FAILURE_PERIOD HB_INTERVAL_PING * 20
-#define FAILURE_PERIOD  HB_INTERVAL_PING * 10
+#define HB_INTERVAL_PING 1
+#define SUSPECTED_FAILURE_PERIOD HB_INTERVAL_PING * 2
+#define FAILURE_PERIOD  HB_INTERVAL_PING * 5
 #define FAILURE_NODE_REJOIN_INTERBAL  SUSPECTED_FAILURE_PERIOD
 /*
  * Note: You can change/add any functions in MP1Node.{h,cpp}
@@ -96,7 +96,7 @@ typedef struct MessageLeaveNotice {
  */
 typedef struct MessageMemberFailure {
 	MessageHdr messageheader; // message type, etc..
-	Address nodeaddr; // address of the node that is welcomed
+	Address nodeaddr; // address of the node that failed
 	//MemberListEntry memberList[NUM_MEMBERLIST_ENTRIES_COPY];
 }MessageMemberFailure;
 
@@ -125,6 +125,7 @@ private:
 	char NULLADDR[6];
 	bool booter;
     unordered_set<string> memberlist_set;
+    unordered_set<string> failed_member_set;
 	vector<MemberListEntry> suspected_list;
 	unordered_set<string> suspected_set;
 	unordered_map<string, long> removednode_timestamp;
@@ -145,7 +146,7 @@ public:
 	void nodeLoopOps();
 	
 	void add_node_to_memberlist(int id, short port, long heartbeat, long timestamp);
-	void delete_node_from_memberlist(int id, short port);
+    void delete_node_from_memberlist(int id, short port, bool failed);
 	void handle_message_JOINREQ(void *env, char *data, int size);
 	void handle_message_JOINREP(void *env, char *data, int size);
 	void handle_message_LEAVENOTICE(void *env, char *data, int size);
