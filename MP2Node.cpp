@@ -647,10 +647,30 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
 	return q.enqueue((queue<q_elt> *)env, (void *)buff, size);
 }
 
+void MP2Node::change_replica_grade(ReplicaType selecttype, ReplicaType Reptype) {
+    string key, value;
+    ReplicaType type;
 
-void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
+    for (auto entry : data_hashtable) {
+        key = entry.first;
+        value = entry.second.first;
+        type = entry.second.second;
+
+        if (type == selecttype) {
+            entry.second = make_pair(value, Reptype);
+        }
+    }
+
+    return;
+}
+
+
+void MP2Node::share_load_to_node(Node& newnode, ReplicaType selecttype, ReplicaType Reptype) {
 #ifdef DEBUGLOG
-    log->LOG(&memberNode->addr, "share_load_to_node.");
+    string str = "share_load_to_node *** ";
+    Address delete_address = newnode.nodeAddress;
+    str = str + delete_address.getAddress();
+    log->LOG(&memberNode->addr, str.c_str());
 #endif
 
 	int transID = 0;
@@ -670,7 +690,7 @@ void MP2Node::share_load_to_node(Node& newnode, ReplicaType Reptype) {
 		value = entry.second.first;
 		type = entry.second.second;
 
-		if (type == PRIMARY) {
+        if (type == selecttype) {
 			msg.key = key;
 			msg.value = value;
 
@@ -742,7 +762,8 @@ void MP2Node::stabilizationProtocol() {
 		}
 	}
 
-	vector<Node> new_hasMyReplicas;
+    vector<Node> new_hasMyReplicas, new_haveReplicasOf;
+    bool was_hasMyReplicas_zero = false, was_haveReplicasOf_zero = false;
 
     index = (index + 1) % ring.size();
     new_hasMyReplicas.push_back(ring[index]);
@@ -752,28 +773,78 @@ void MP2Node::stabilizationProtocol() {
 
 	if (hasMyReplicas.size() == 0) {
 		hasMyReplicas = new_hasMyReplicas;
-		share_load_to_node(hasMyReplicas[0], SECONDARY);
-		share_load_to_node(hasMyReplicas[1], TERTIARY);
+        share_load_to_node(hasMyReplicas[0], PRIMARY, SECONDARY);
+        share_load_to_node(hasMyReplicas[1], PRIMARY, TERTIARY);
 
-		return;
+        was_hasMyReplicas_zero = true;
 	}
 
-	//create replicas on new nodes
-	for (index = 0; index < 2; index++) {
-        if (new_hasMyReplicas[index].nodeHashCode != hasMyReplicas[0].nodeHashCode && new_hasMyReplicas[index].nodeHashCode != hasMyReplicas[1].nodeHashCode) { // new node added in, share some load on it.
-			ReplicaType type = (index == 0) ? SECONDARY : TERTIARY;
-			share_load_to_node(new_hasMyReplicas[index], type);
-		}
-	}
-	
-	//delete key/value from some nodes
-	for (index = 0; index < 2; index++) {
-        if (hasMyReplicas[index].nodeHashCode != new_hasMyReplicas[0].nodeHashCode && hasMyReplicas[index].nodeHashCode != new_hasMyReplicas[1].nodeHashCode) { // new node added in, share some load on it.
-			delete_load_from_node(hasMyReplicas[index]);
-		}
-	}
 
-    hasMyReplicas = new_hasMyReplicas;
+    index = (index == 0) ? (ring.size() - 1) : (index - 1);
+    new_haveReplicasOf.push_back(ring[index]);
+
+    index = (index == 0) ? (ring.size() - 1) : (index - 1);
+    new_haveReplicasOf.push_back(ring[index]);
+
+    if (haveReplicasOf.size() == 0) {
+        haveReplicasOf = new_haveReplicasOf;
+        was_haveReplicasOf_zero = true;
+
+#ifdef DEBUGLOG
+        string str = "ring element: *** ";
+        for (int i = 0; i < ring.size(); i++) {
+            Address node_address = ring[i].nodeAddress;
+            str = str + node_address.getAddress() + " , ";
+        }
+        
+        log->LOG(&memberNode->addr, str.c_str());
+#endif
+    }
+
+	//if there is any change, we delete data on old replicas, and create them on new one
+    if (was_hasMyReplicas_zero == false) {
+
+        if (new_hasMyReplicas[0].nodeHashCode != hasMyReplicas[0].nodeHashCode || new_hasMyReplicas[1].nodeHashCode != hasMyReplicas[1].nodeHashCode) {
+            delete_load_from_node(hasMyReplicas[0]);
+            delete_load_from_node(hasMyReplicas[1]);
+            
+            share_load_to_node(new_hasMyReplicas[0], PRIMARY, SECONDARY);
+            share_load_to_node(new_hasMyReplicas[1], PRIMARY, TERTIARY);
+        }
+
+        hasMyReplicas = new_hasMyReplicas;
+    }
+
+    //haveReplicasOf = new_haveReplicasOf;
+    if (was_haveReplicasOf_zero == false) {
+        bool first_failed = false, second_failed = false;
+
+        if (haveReplicasOf[0].nodeHashCode != new_haveReplicasOf[0].nodeHashCode) {
+            first_failed = true;
+        }
+
+        if (haveReplicasOf[1].nodeHashCode != new_haveReplicasOf[0].nodeHashCode && haveReplicasOf[1].nodeHashCode != new_haveReplicasOf[1].nodeHashCode) {
+            second_failed = true;
+        }
+
+        if (first_failed && second_failed) {
+            share_load_to_node(new_hasMyReplicas[0], SECONDARY, SECONDARY);
+            share_load_to_node(new_hasMyReplicas[1], SECONDARY, TERTIARY);
+            share_load_to_node(new_hasMyReplicas[0], TERTIARY, SECONDARY);
+            share_load_to_node(new_hasMyReplicas[1], TERTIARY, TERTIARY);
+
+            change_replica_grade(SECONDARY, PRIMARY);
+            change_replica_grade(TERTIARY, PRIMARY);
+        }
+        else if (first_failed) {
+            share_load_to_node(new_hasMyReplicas[0], SECONDARY, SECONDARY);
+            share_load_to_node(new_hasMyReplicas[1], SECONDARY, TERTIARY);
+            change_replica_grade(SECONDARY, PRIMARY);
+        }
+        else if (second_failed) {
+            // do nothing?
+        }
+    }
 
     auto iter = Quoram_Items.begin();
     while (iter != Quoram_Items.end()) {

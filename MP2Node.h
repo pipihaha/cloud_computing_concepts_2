@@ -108,10 +108,11 @@ public:
     void insert_item_to_hashtable(MessageType type, string key, string value);
     void send_reply(int transID, bool success, Address* toaddr, string key, string value);
     void send_readreply(int transID, Address* toaddr, string key, string str);
-	void share_load_to_node(Node& newnode, ReplicaType Reptype);
+    void share_load_to_node(Node& newnode, ReplicaType selecttype, ReplicaType Reptype);
 	void delete_load_from_node(Node& newnode);
     void handle_reply(Message *msg);
     void handle_readreply(Message *msg);
+    void change_replica_grade(ReplicaType selecttype, ReplicaType Reptype);
 
 	~MP2Node();
 };

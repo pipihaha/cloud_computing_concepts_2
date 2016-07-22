@@ -243,14 +243,19 @@ void MP1Node::delete_node_from_memberlist(int id, short port, bool failed) {
             failed_member_set.insert(to_string(id) + ":" + to_string(port));
 		}
 	}
-
+    /*
     for (int index = 0; index < (int)suspected_list.size(); index++) {
         if (suspected_list[index].id == id && suspected_list[index].port == port) {
             suspected_list.erase(suspected_list.begin() + index);
+
+            string str = "Remove Suspect Node (delete_node) --- ";
+            Address delete_address = GetAddress(id, port);
+            str = str + delete_address.getAddress();
+            log->LOG(&memberNode->addr, str.c_str());
             break;
         }
     }
-    
+    */
     if (failed == true) {
         MessageMemberFailure msg;
         msg.messageheader.msgType = MEMBERFAILURE;
@@ -258,9 +263,9 @@ void MP1Node::delete_node_from_memberlist(int id, short port, bool failed) {
         for (int index = 0; index < (int)memberNode->memberList.size(); index++) {
             MemberListEntry *entry = &memberNode->memberList[index];
             Address toaddr = GetAddress(entry->id, entry->port);
-#ifdef SELFDEBUG_1
-            log->LOG(&memberNode->addr, "Sending member failure message to memberlist.");
-#endif
+//#ifdef SELFDEBUG_1
+//            log->LOG(&memberNode->addr, "Sending member failure message to memberlist.");
+//#endif
             emulNet->ENsend(&memberNode->addr, &toaddr, (char*) &msg, sizeof(msg));
         }
     }
@@ -531,21 +536,34 @@ void MP1Node::handle_message_HEARTBEAT(void *env, char *data, int size ) {
 				if (msg->heartbeat > suspected_entry->heartbeat) { // seems updated, remove it from suspected list 
 					suspected_list.erase(suspected_list.begin() + index);
 					suspected_set.erase(to_string(suspected_entry->id) + ":" + to_string(suspected_entry->port));
+
+                    /*string str = "Remove Suspect Node, heartbeat --- ";
+                    Address delete_address = GetAddress(id, port);
+                    str = str + delete_address.getAddress();
+                    log->LOG(&memberNode->addr, str.c_str());*/
 				}
 				
 				break;
 			}
 		}
 	}
-	
+
+                    
 	// update heartbeat for the coming node
-	for (auto entry : memberNode->memberList) {
-		if (id == entry.id && port == entry.port) {
+	for (int index = 0; index < memberNode->memberList.size(); index ++) {
+                MemberListEntry *entry = &memberNode->memberList[index];
+		if (id == entry->id && port == entry->port) {
 			
-			if (msg->heartbeat > entry.heartbeat) {
-				entry.heartbeat = msg->heartbeat;
-				entry.timestamp = memberNode->heartbeat;
-			}
+			//if (msg->heartbeat > entry.heartbeat) {
+				entry->heartbeat = msg->heartbeat;
+				entry->timestamp = memberNode->heartbeat;
+			//}
+
+                    //string str = "Handle heartbeat from node --- ";
+                    //Address delete_address = GetAddress(id, port);
+                    //str = str + delete_address.getAddress() + ", timestamp: " + to_string(memberNode->heartbeat);
+                    //log->LOG(&memberNode->addr, str.c_str());
+	
 	
 			break;
 		}
@@ -565,6 +583,8 @@ void MP1Node::handle_message_HEARTBEAT(void *env, char *data, int size ) {
 					if (updated_entry.heartbeat > old_entry.heartbeat) {
 						old_entry.heartbeat = updated_entry.heartbeat;
 						old_entry.timestamp = memberNode->heartbeat;
+
+                        break;
 					}
 				}
 			}
@@ -585,9 +605,9 @@ void MP1Node::handle_message_MEMBERFAILURE(void *env, char *data, int size ) {
 	/*
 	 * Your code goes here 
 	 */
-#ifdef SELFDEBUG_1
-       log->LOG(&memberNode->addr, "received MEMBERFAILURE message ...");
-#endif
+//#ifdef SELFDEBUG_1
+ //      log->LOG(&memberNode->addr, "received MEMBERFAILURE message ...");
+//#endif
 
     MessageMemberFailure *msg = (MessageMemberFailure *)data;
     string addr = msg->nodeaddr.getAddress();
@@ -640,10 +660,10 @@ void MP1Node::nodeLoopOps() {
 	for (int index = 0; index < (int)suspected_list.size(); index ++) {
 		if (suspected_list[index].timestamp + FAILURE_PERIOD < memberNode->heartbeat) {
 #ifdef SELFDEBUG_1
-            string str = "Delete Node --- ";
-            Address delete_address = GetAddress(suspected_list[index].id, suspected_list[index].port);
-            str = str + delete_address.getAddress();
-            log->LOG(&memberNode->addr, str.c_str());
+            //string str = "Delete Node --- ";
+            //Address delete_address = GetAddress(suspected_list[index].id, suspected_list[index].port);
+            //str = str + delete_address.getAddress();
+            //log->LOG(&memberNode->addr, str.c_str());
 #endif
 			delete_node_from_memberlist(suspected_list[index].id, suspected_list[index].port, true);
 			suspected_set.erase(to_string(suspected_list[index].id) + ":" + to_string(suspected_list[index].port));
@@ -662,6 +682,21 @@ void MP1Node::nodeLoopOps() {
 			suspected_set.insert(str);
 			MemberListEntry new_suspected_entry(entry.id, entry.port, entry.heartbeat, memberNode->heartbeat);
 			suspected_list.push_back(new_suspected_entry);
+
+/*#ifdef SELFDEBUG_1
+            string str = "Suspect Node --- ";
+            Address delete_address = GetAddress(entry.id, entry.port);
+            str = str + delete_address.getAddress();
+            log->LOG(&memberNode->addr, str.c_str());
+
+            str = "memberlist element: *** ";
+            for (int i = 0; i < memberNode->memberList.size(); i++) {
+                Address node_address = GetAddress(memberNode->memberList[i].id, memberNode->memberList[i].port);
+                str = str + node_address.getAddress() + ": " + to_string(memberNode->memberList[i].timestamp) + ", ";
+            }
+
+            log->LOG(&memberNode->addr, str.c_str());
+#endif*/
 		}
 	}
 	
